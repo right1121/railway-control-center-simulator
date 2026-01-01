@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ type LeaveDispatcherInput struct {
 // - repo 経由でドメインを取得・保存
 // - mutex で整合性（複数操作の直列化）を保証
 type service struct {
-	repo domain.TrainingSessionRepository
+	repo domain.Repository
 	mu   sync.Mutex
 
 	// ID生成関数は差し替え可能にしてテストしやすくする
@@ -46,7 +47,7 @@ type service struct {
 }
 
 // NewUseCase は UseCase 実装を生成する
-func NewUseCase(repo domain.TrainingSessionRepository, newDispatcherID func() string) UseCase {
+func NewUseCase(repo domain.Repository, newDispatcherID func() string) UseCase {
 	if newDispatcherID == nil {
 		newDispatcherID = func() string { return "TODO" } // 実運用では必ず差し替える
 	}
@@ -73,7 +74,7 @@ func (s *service) JoinDispatcher(ctx context.Context, input JoinDispatcherInput)
 	)
 
 	// ドメイン集約取得
-	session, err := s.repo.Get(ctx)
+	session, err := s.ensureSession(ctx, now)
 	if err != nil {
 		return JoinDispatcherOutput{}, err
 	}
@@ -143,4 +144,39 @@ func (s *service) GetSnapshot(ctx context.Context) (SessionSnapshotDTO, error) {
 		return SessionSnapshotDTO{}, err
 	}
 	return toSnapshotDTO(session), nil
+}
+
+// ensureSession は「無ければ作る」をUseCaseの明示的な責務として実装する
+func (s *service) ensureSession(ctx context.Context, now time.Time) (*domain.TrainingSession, error) {
+	session, err := s.repo.Get(ctx)
+	if err == nil {
+		return session, nil
+	}
+
+	if !errors.Is(err, domain.ErrSessionAlreadyExists) {
+		return nil, err
+	}
+
+	// 無ければ明示的に作る
+	id, err := domain.NewSessionID("default")
+	if err != nil {
+		return nil, fmt.Errorf("セッションIDの生成に失敗。%w", err)
+	}
+	newSession := domain.NewTrainingSession(id, now)
+
+	// Create（競合したら再Getで救済）
+	if err := s.repo.Create(ctx, newSession); err != nil {
+		// 同時リクエストで二重作成になった場合を救済
+		// （service.mu があるなら基本起きないが、repoが別プロセス等になっても安全）
+		if errors.Is(err, domain.ErrSessionAlreadyExists) {
+			again, gerr := s.repo.Get(ctx)
+			if gerr == nil {
+				return again, nil
+			}
+			return nil, fmt.Errorf("セッション作成競合後の取得に失敗: %w", err)
+		}
+		return nil, fmt.Errorf("セッションの作成に失敗: %w", err)
+	}
+
+	return newSession, nil
 }

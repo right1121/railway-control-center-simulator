@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/right1121/railway-control-center-simulator/internal/config"
+	"github.com/right1121/railway-control-center-simulator/internal/di"
 	"github.com/right1121/railway-control-center-simulator/internal/interfaces/http/middleware"
 	"github.com/right1121/railway-control-center-simulator/pkg/logger"
 )
@@ -37,6 +38,11 @@ func setup(mux *http.ServeMux, cfg *config.Config, container *di.Container) *htt
 
 	// ヘルスチェック
 	mux.Handle("GET /health", http.HandlerFunc(h.HealthCheck))
+
+	// セッション
+	mux.Handle("GET /api/session", http.HandlerFunc(h.sessionHandler.Get))
+	mux.Handle("POST /api/session/join", http.HandlerFunc(h.sessionHandler.Join))
+	mux.Handle("POST /api/session/leave", http.HandlerFunc(h.sessionHandler.Leave))
 
 	return mux
 }

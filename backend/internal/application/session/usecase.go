@@ -41,19 +41,12 @@ type LeaveDispatcherInput struct {
 type service struct {
 	repo domain.Repository
 	mu   sync.Mutex
-
-	// ID生成関数は差し替え可能にしてテストしやすくする
-	newDispatcherID func() string
 }
 
 // NewUseCase は UseCase 実装を生成する
-func NewUseCase(repo domain.Repository, newDispatcherID func() string) UseCase {
-	if newDispatcherID == nil {
-		newDispatcherID = func() string { return "TODO" } // 実運用では必ず差し替える
-	}
+func NewUseCase(repo domain.Repository) UseCase {
 	return &service{
-		repo:            repo,
-		newDispatcherID: newDispatcherID,
+		repo: repo,
 	}
 }
 

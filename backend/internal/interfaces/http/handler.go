@@ -6,8 +6,7 @@ import (
 
 type Handler struct{}
 
-func NewHandler() *Handler {
-	return &Handler{}
+func NewHandler(container *di.Container) *Handler {
 }
 
 // HealthCheck はヘルスチェックを行うハンドラです

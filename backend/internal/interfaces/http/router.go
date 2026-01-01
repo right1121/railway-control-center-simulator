@@ -12,10 +12,10 @@ type Router struct {
 	handler http.Handler
 }
 
-func NewRouter(cfg *config.Config, logger *logger.Logger) *Router {
+func NewRouter(cfg *config.Config, logger *logger.Logger, container *di.Container) *Router {
 	mux := http.NewServeMux()
 
-	routed := setup(mux, cfg)
+	routed := setup(mux, cfg, container)
 
 	// ミドルウェアを順番に適用
 	handler := middleware.ContextMiddleware(
@@ -32,8 +32,8 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.handler.ServeHTTP(w, req)
 }
 
-func setup(mux *http.ServeMux, cfg *config.Config) *http.ServeMux {
-	h := NewHandler()
+func setup(mux *http.ServeMux, cfg *config.Config, container *di.Container) *http.ServeMux {
+	h := NewHandler(container)
 
 	// ヘルスチェック
 	mux.Handle("GET /health", http.HandlerFunc(h.HealthCheck))

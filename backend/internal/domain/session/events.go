@@ -13,11 +13,11 @@ type DispatcherJoined struct {
 	name DispatcherName
 }
 
-func NewDispatcherJoined(at time.Time, id DispatcherID, name DispatcherName) DispatcherJoined {
+func NewDispatcherJoined(at time.Time, dispatcher Dispatcher) DispatcherJoined {
 	return DispatcherJoined{
 		at:   at,
-		id:   id,
-		name: name,
+		id:   dispatcher.ID(),
+		name: dispatcher.Name(),
 	}
 }
 

@@ -32,23 +32,23 @@ func (s *TrainingSession) Dispatchers() []Dispatcher {
 }
 
 func (s *TrainingSession) JoinDispatcher(
-	id DispatcherID,
-	name DispatcherName,
+	dispatcher Dispatcher,
 	now time.Time,
 ) error {
-	key := id.String()
+	dispatcher.joined(now)
+
+	key := dispatcher.ID().String()
 
 	if _, ok := s.dispatchers[key]; ok {
 		return ErrDispatcherAlreadyExists
 	}
 
-	d := NewDispatcher(id, name, now)
-	s.dispatchers[key] = d
+	s.dispatchers[key] = dispatcher
 	s.lastActiveAt = now
 
 	s.events = append(
 		s.events,
-		NewDispatcherJoined(now, id, name),
+		NewDispatcherJoined(now, dispatcher),
 	)
 	return nil
 }

@@ -11,12 +11,15 @@ type Dispatcher struct {
 }
 
 // NewDispatcher は管制員を生成する（生成時に不変条件をチェック）
-func NewDispatcher(id DispatcherID, name DispatcherName, joinedAt time.Time) Dispatcher {
+func NewDispatcher(id DispatcherID, name DispatcherName) Dispatcher {
 	return Dispatcher{
-		id:       id,
-		name:     name,
-		joinedAt: joinedAt,
+		id:   id,
+		name: name,
 	}
+}
+
+func (d *Dispatcher) joined(t time.Time) {
+	d.joinedAt = t
 }
 
 func (d Dispatcher) ID() DispatcherID     { return d.id }

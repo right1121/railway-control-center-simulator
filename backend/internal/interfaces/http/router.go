@@ -40,9 +40,9 @@ func setup(mux *http.ServeMux, cfg *config.Config, container *di.Container) *htt
 	mux.Handle("GET /health", http.HandlerFunc(h.HealthCheck))
 
 	// セッション
-	mux.Handle("GET /api/session", http.HandlerFunc(h.sessionHandler.Get))
-	mux.Handle("POST /api/session/join", http.HandlerFunc(h.sessionHandler.Join))
-	mux.Handle("POST /api/session/leave", http.HandlerFunc(h.sessionHandler.Leave))
+	mux.Handle("GET /api/v1/session", http.HandlerFunc(h.sessionHandler.Get))
+	mux.Handle("POST /api/v1/session/join", http.HandlerFunc(h.sessionHandler.Join))
+	mux.Handle("POST /api/v1/session/leave", http.HandlerFunc(h.sessionHandler.Leave))
 
 	return mux
 }

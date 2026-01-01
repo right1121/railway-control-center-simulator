@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/right1121/railway-control-center-simulator/internal/di"
 	apphttp "github.com/right1121/railway-control-center-simulator/internal/interfaces/http"
 )
 
@@ -15,7 +16,9 @@ type WebApp struct {
 }
 
 func NewWebApp(base *BaseApp) *WebApp {
-	router := apphttp.NewRouter(base.config, base.logger)
+	container := di.NewContainer(base.config)
+
+	router := apphttp.NewRouter(base.config, base.logger, container)
 	server := &http.Server{
 		Addr:    fmt.Sprintf("%s:%d", base.config.Server.Host, base.config.Server.Port),
 		Handler: router,

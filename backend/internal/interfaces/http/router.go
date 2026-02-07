@@ -43,6 +43,8 @@ func setup(mux *http.ServeMux, cfg *config.Config, container *di.Container) *htt
 	mux.Handle("GET /api/v1/session", http.HandlerFunc(h.sessionHandler.Get))
 	mux.Handle("POST /api/v1/session/join", http.HandlerFunc(h.sessionHandler.Join))
 	mux.Handle("POST /api/v1/session/leave", http.HandlerFunc(h.sessionHandler.Leave))
+	mux.Handle("GET /api/v1/simulation", http.HandlerFunc(h.simulationHandler.Get))
+	mux.Handle("POST /api/v1/simulation/tick", http.HandlerFunc(h.simulationHandler.Tick))
 
 	return mux
 }

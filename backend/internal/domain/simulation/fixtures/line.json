@@ -1,0 +1,11 @@
+{
+  "stations": [
+    { "id": "S0" },
+    { "id": "S1" },
+    { "id": "S2" }
+  ],
+  "blocks": [
+    { "id": "B0", "fromStationId": "S0", "toStationId": "S1" },
+    { "id": "B1", "fromStationId": "S1", "toStationId": "S2" }
+  ]
+}

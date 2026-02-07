@@ -1,0 +1,181 @@
+package simulation
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	simulationapp "github.com/right1121/railway-control-center-simulator/internal/application/simulation"
+)
+
+func TestGetReturnsSimulationDTO(t *testing.T) {
+	uc := &stubSimulationUseCase{
+		getDTO: testSimulationDTO(),
+	}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/simulation", nil)
+	rec := httptest.NewRecorder()
+	handler.Get(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+
+	var got simulationapp.SimulationDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+
+	if got.SimTimeMillis != 1000 {
+		t.Fatalf("expected simTimeMillis 1000, got %d", got.SimTimeMillis)
+	}
+	if len(got.Trains) != 1 || got.Trains[0].ID != "T0" {
+		t.Fatalf("unexpected trains payload: %+v", got.Trains)
+	}
+}
+
+func TestGetReturnsInternalErrorOnUseCaseFailure(t *testing.T) {
+	uc := &stubSimulationUseCase{getErr: errors.New("boom")}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/simulation", nil)
+	rec := httptest.NewRecorder()
+	handler.Get(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "INTERNAL", "internal error")
+}
+
+func TestTickReturnsSimulationDTO(t *testing.T) {
+	uc := &stubSimulationUseCase{
+		tickDTO: testSimulationDTO(),
+	}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/tick", strings.NewReader(`{"deltaMillis":1000}`))
+	rec := httptest.NewRecorder()
+	handler.Tick(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if uc.tickInput.DeltaMillis != 1000 {
+		t.Fatalf("expected deltaMillis 1000, got %d", uc.tickInput.DeltaMillis)
+	}
+
+	var got simulationapp.SimulationDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if got.SimTimeMillis != 1000 {
+		t.Fatalf("expected simTimeMillis 1000, got %d", got.SimTimeMillis)
+	}
+}
+
+func TestTickReturnsBadJSONOnDecodeFailure(t *testing.T) {
+	uc := &stubSimulationUseCase{}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/tick", strings.NewReader(`{"deltaMillis":`))
+	rec := httptest.NewRecorder()
+	handler.Tick(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "BAD_JSON", "invalid json")
+}
+
+func TestTickReturnsValidationErrorOnInvalidTickDelta(t *testing.T) {
+	uc := &stubSimulationUseCase{tickErr: simulationapp.ErrInvalidTickDelta}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/tick", strings.NewReader(`{"deltaMillis":0}`))
+	rec := httptest.NewRecorder()
+	handler.Tick(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "INVALID_TICK_DELTA", "invalid tick delta")
+}
+
+func TestTickReturnsInternalErrorOnUseCaseFailure(t *testing.T) {
+	uc := &stubSimulationUseCase{tickErr: errors.New("boom")}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/tick", strings.NewReader(`{"deltaMillis":1000}`))
+	rec := httptest.NewRecorder()
+	handler.Tick(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "INTERNAL", "internal error")
+}
+
+type stubSimulationUseCase struct {
+	getDTO    simulationapp.SimulationDTO
+	tickDTO   simulationapp.SimulationDTO
+	getErr    error
+	tickErr   error
+	tickInput simulationapp.TickInput
+}
+
+func (s *stubSimulationUseCase) GetSimulation(ctx context.Context) (simulationapp.SimulationDTO, error) {
+	_ = ctx
+	return s.getDTO, s.getErr
+}
+
+func (s *stubSimulationUseCase) Tick(ctx context.Context, input simulationapp.TickInput) (simulationapp.SimulationDTO, error) {
+	_ = ctx
+	s.tickInput = input
+	return s.tickDTO, s.tickErr
+}
+
+func testSimulationDTO() simulationapp.SimulationDTO {
+	return simulationapp.SimulationDTO{
+		SimTimeMillis: 1000,
+		Line: simulationapp.LineDTO{
+			Stations: []string{"S0", "S1"},
+			Blocks:   []string{"B0"},
+		},
+		Trains: []simulationapp.TrainDTO{
+			{
+				ID:              "T0",
+				BlockID:         "B0",
+				Progress:        0.5,
+				Forward:         true,
+				Speed:           0.5,
+				PendingTurnback: false,
+			},
+		},
+	}
+}
+
+func assertErrorBody(t *testing.T, body []byte, code string, message string) {
+	t.Helper()
+
+	var got map[string]map[string]string
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+
+	if got["error"]["code"] != code {
+		t.Fatalf("expected error code %s, got %q", code, got["error"]["code"])
+	}
+	if got["error"]["message"] != message {
+		t.Fatalf("expected error message %s, got %q", message, got["error"]["message"])
+	}
+}

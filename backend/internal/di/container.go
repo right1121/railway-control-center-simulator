@@ -35,7 +35,7 @@ type UseCases struct {
 func NewContainer(cfg *config.Config) *Container {
 	session := sessionRepo.NewInMemorySessionRepository()
 	simState := sessionRepo.NewInMemorySimulationRepository()
-	loader := lineLoader.NewSimulationLineLoader(lineLoader.DefaultSimulationLinePath)
+	loader := lineLoader.NewSimulationLineLoader(cfg.Simulation.LineDefinitionPath)
 
 	repos := Repositories{
 		Session:    session,

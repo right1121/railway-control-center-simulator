@@ -15,6 +15,9 @@ type Config struct {
 		Port int    `json:"port"`
 		Host string `json:"host"`
 	} `json:"server"`
+	Simulation struct {
+		LineDefinitionPath string `json:"lineDefinitionPath,omitempty"`
+	} `json:"simulation,omitempty"`
 	SecurePath string `json:"securePath,omitempty"`
 }
 

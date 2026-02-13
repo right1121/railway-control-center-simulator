@@ -29,6 +29,12 @@ func TestGetSimulationCreatesStateOnFirstCall(t *testing.T) {
 	if dto.Trains[0].BlockID != "B0" {
 		t.Fatalf("expected initial block B0, got %s", dto.Trains[0].BlockID)
 	}
+	if len(dto.Line.Stations) != 3 {
+		t.Fatalf("expected 3 stations, got %d", len(dto.Line.Stations))
+	}
+	if len(dto.Line.Blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(dto.Line.Blocks))
+	}
 }
 
 func TestGetSimulationReturnsErrorOnLineLoadFailure(t *testing.T) {

@@ -1,5 +1,5 @@
 ---
-name: make-plan-doc
+name: create-plans-md
 description: 実装計画を立ててplan.mdを作成するタイミングで利用してください
 ---
 

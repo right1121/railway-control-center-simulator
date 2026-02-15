@@ -86,3 +86,19 @@ func (l *Line) NextBlock(id BlockID, forward bool) (BlockID, bool, error) {
 	}
 	return l.blocks[next], true, nil
 }
+
+func (l *Line) FromStation(id BlockID) (StationID, bool) {
+	index, ok := l.IndexOfBlock(id)
+	if !ok {
+		return StationID{}, false
+	}
+	return l.stations[index], true
+}
+
+func (l *Line) ToStation(id BlockID) (StationID, bool) {
+	index, ok := l.IndexOfBlock(id)
+	if !ok {
+		return StationID{}, false
+	}
+	return l.stations[index+1], true
+}

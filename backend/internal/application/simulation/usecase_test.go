@@ -29,6 +29,12 @@ func TestGetSimulationCreatesStateOnFirstCall(t *testing.T) {
 	if dto.Trains[0].BlockID != "B0" {
 		t.Fatalf("expected initial block B0, got %s", dto.Trains[0].BlockID)
 	}
+	if !dto.Trains[0].AtBoundary {
+		t.Fatalf("expected initial train at boundary")
+	}
+	if dto.Trains[0].StationID != nil {
+		t.Fatalf("expected initial stationId nil for forward train at progress 0")
+	}
 	if len(dto.Line.Stations) != 3 {
 		t.Fatalf("expected 3 stations, got %d", len(dto.Line.Stations))
 	}
@@ -61,6 +67,34 @@ func TestTickAdvancesSimulation(t *testing.T) {
 	}
 	if dto.Trains[0].Progress != 0.5 {
 		t.Fatalf("expected train progress 0.5, got %f", dto.Trains[0].Progress)
+	}
+	if dto.Trains[0].AtBoundary {
+		t.Fatalf("expected train not at boundary")
+	}
+	if dto.Trains[0].StationID != nil {
+		t.Fatalf("expected stationId nil when not at boundary")
+	}
+}
+
+func TestTickSetsBoundaryStationInDTO(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	dto, err := uc.Tick(context.Background(), TickInput{DeltaMillis: 4000})
+	if err != nil {
+		t.Fatalf("Tick failed: %v", err)
+	}
+
+	train := dto.Trains[0]
+	if !train.AtBoundary {
+		t.Fatalf("expected train at boundary")
+	}
+	if train.StationID == nil {
+		t.Fatalf("expected stationId not nil")
+	}
+	if *train.StationID != "S2" {
+		t.Fatalf("expected stationId S2, got %s", *train.StationID)
 	}
 }
 

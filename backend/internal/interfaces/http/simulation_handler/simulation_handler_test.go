@@ -37,6 +37,12 @@ func TestGetReturnsSimulationDTO(t *testing.T) {
 	if len(got.Trains) != 1 || got.Trains[0].ID != "T0" {
 		t.Fatalf("unexpected trains payload: %+v", got.Trains)
 	}
+	if !got.Trains[0].AtBoundary {
+		t.Fatalf("expected atBoundary true")
+	}
+	if got.Trains[0].StationID == nil || *got.Trains[0].StationID != "S1" {
+		t.Fatalf("expected stationId S1, got %+v", got.Trains[0].StationID)
+	}
 }
 
 func TestGetReturnsInternalErrorOnUseCaseFailure(t *testing.T) {
@@ -77,6 +83,12 @@ func TestTickReturnsSimulationDTO(t *testing.T) {
 	}
 	if got.SimTimeMillis != 1000 {
 		t.Fatalf("expected simTimeMillis 1000, got %d", got.SimTimeMillis)
+	}
+	if !got.Trains[0].AtBoundary {
+		t.Fatalf("expected atBoundary true")
+	}
+	if got.Trains[0].StationID == nil || *got.Trains[0].StationID != "S1" {
+		t.Fatalf("expected stationId S1, got %+v", got.Trains[0].StationID)
 	}
 }
 
@@ -145,6 +157,7 @@ func (s *stubSimulationUseCase) Tick(ctx context.Context, input simulationapp.Ti
 }
 
 func testSimulationDTO() simulationapp.SimulationDTO {
+	stationID := "S1"
 	return simulationapp.SimulationDTO{
 		SimTimeMillis: 1000,
 		Line: simulationapp.LineDTO{
@@ -159,6 +172,8 @@ func testSimulationDTO() simulationapp.SimulationDTO {
 				Forward:         true,
 				Speed:           0.5,
 				PendingTurnback: false,
+				AtBoundary:      true,
+				StationID:       &stationID,
 			},
 		},
 	}

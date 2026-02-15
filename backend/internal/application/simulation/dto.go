@@ -20,6 +20,8 @@ type TrainDTO struct {
 	Forward         bool    `json:"forward"`
 	Speed           float64 `json:"speed"`
 	PendingTurnback bool    `json:"pendingTurnback"`
+	AtBoundary      bool    `json:"atBoundary"`
+	StationID       *string `json:"stationId"`
 }
 
 func toSimulationDTO(state *domain.SimulationState) SimulationDTO {
@@ -40,6 +42,13 @@ func toSimulationDTO(state *domain.SimulationState) SimulationDTO {
 
 	trainDTOs := make([]TrainDTO, 0, len(trains))
 	for _, train := range trains {
+		stationID, hasStation := state.TrainStationAtBoundary(train.ID())
+		var stationIDPtr *string
+		if hasStation {
+			station := stationID.String()
+			stationIDPtr = &station
+		}
+
 		trainDTOs = append(trainDTOs, TrainDTO{
 			ID:              train.ID().String(),
 			BlockID:         train.BlockID().String(),
@@ -47,6 +56,8 @@ func toSimulationDTO(state *domain.SimulationState) SimulationDTO {
 			Forward:         train.Forward(),
 			Speed:           train.Speed(),
 			PendingTurnback: train.PendingTurnback(),
+			AtBoundary:      state.IsAtBoundary(train.ID()),
+			StationID:       stationIDPtr,
 		})
 	}
 

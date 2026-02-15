@@ -1,6 +1,7 @@
 package simulation
 
 import (
+	"math"
 	"sort"
 )
 
@@ -40,6 +41,10 @@ func (s *SimulationState) Trains() []Train {
 }
 
 func (s *SimulationState) AddTrain(train *Train) error {
+	if train == nil {
+		return ErrTrainNotFound
+	}
+
 	trainKey := train.ID().String()
 	if _, exists := s.trains[trainKey]; exists {
 		return ErrTrainAlreadyExists
@@ -59,6 +64,10 @@ func (s *SimulationState) AddTrain(train *Train) error {
 }
 
 func (s *SimulationState) Tick(dt TickDelta) error {
+	if dt.Duration() <= 0 {
+		return ErrTickDeltaNotPositive
+	}
+
 	s.simTime = s.simTime.Add(dt.Duration())
 
 	keys := s.sortedTrainKeys()
@@ -142,6 +151,37 @@ func (s *SimulationState) Tick(dt TickDelta) error {
 	return nil
 }
 
+func (s *SimulationState) IsAtBoundary(trainID TrainID) bool {
+	train, ok := s.trains[trainID.String()]
+	if !ok {
+		return false
+	}
+	return isBoundaryProgress(train.Progress().Float64())
+}
+
+func (s *SimulationState) TrainStation(trainID TrainID) (StationID, bool) {
+	return s.TrainStationAtBoundary(trainID)
+}
+
+func (s *SimulationState) TrainStationAtBoundary(trainID TrainID) (StationID, bool) {
+	train, ok := s.trains[trainID.String()]
+	if !ok {
+		return StationID{}, false
+	}
+
+	progress := train.Progress().Float64()
+	if train.Forward() {
+		if !isProgressOne(progress) {
+			return StationID{}, false
+		}
+		return s.line.ToStation(train.BlockID())
+	}
+	if !isProgressZero(progress) {
+		return StationID{}, false
+	}
+	return s.line.FromStation(train.BlockID())
+}
+
 func (s *SimulationState) sortedTrainKeys() []string {
 	keys := make([]string, 0, len(s.trains))
 	for key := range s.trains {
@@ -154,4 +194,16 @@ func (s *SimulationState) sortedTrainKeys() []string {
 func (l *Line) HasBlock(id BlockID) bool {
 	_, ok := l.blockIndex[id.String()]
 	return ok
+}
+
+func isBoundaryProgress(progress float64) bool {
+	return isProgressZero(progress) || isProgressOne(progress)
+}
+
+func isProgressZero(progress float64) bool {
+	return math.Abs(progress) < boundaryEpsilon
+}
+
+func isProgressOne(progress float64) bool {
+	return math.Abs(progress-1) < boundaryEpsilon
 }

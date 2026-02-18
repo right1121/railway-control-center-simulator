@@ -15,6 +15,7 @@ var (
 	ErrLineDuplicateBlockID       = errors.New("line has duplicate block id")
 	ErrLineConnectivityInvalid    = errors.New("line connectivity is invalid")
 	ErrBlockNotFound              = errors.New("block not found")
+	ErrStationNotFound            = errors.New("station not found")
 	ErrTrainAlreadyExists         = errors.New("train already exists")
 	ErrTrainNotFound              = errors.New("train not found")
 	ErrBlockOccupied              = errors.New("block is occupied")

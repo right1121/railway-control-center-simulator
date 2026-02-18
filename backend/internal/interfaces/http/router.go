@@ -45,6 +45,7 @@ func setup(mux *http.ServeMux, cfg *config.Config, container *di.Container) *htt
 	mux.Handle("POST /api/v1/session/leave", http.HandlerFunc(h.sessionHandler.Leave))
 	mux.Handle("GET /api/v1/simulation", http.HandlerFunc(h.simulationHandler.Get))
 	mux.Handle("POST /api/v1/simulation/tick", http.HandlerFunc(h.simulationHandler.Tick))
+	mux.Handle("POST /api/v1/simulation/permission", http.HandlerFunc(h.simulationHandler.SetDeparturePermission))
 
 	return mux
 }

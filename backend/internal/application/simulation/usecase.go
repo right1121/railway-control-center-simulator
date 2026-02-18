@@ -17,10 +17,16 @@ type LineLoader interface {
 type UseCase interface {
 	GetSimulation(ctx context.Context) (SimulationDTO, error)
 	Tick(ctx context.Context, input TickInput) (SimulationDTO, error)
+	SetDeparturePermission(ctx context.Context, input SetDeparturePermissionInput) (DeparturePermissionDTO, error)
 }
 
 type TickInput struct {
 	DeltaMillis int64
+}
+
+type SetDeparturePermissionInput struct {
+	StationID string
+	Allowed   bool
 }
 
 type service struct {
@@ -69,6 +75,45 @@ func (s *service) Tick(ctx context.Context, input TickInput) (SimulationDTO, err
 	}
 
 	return toSimulationDTO(state), nil
+}
+
+func (s *service) SetDeparturePermission(ctx context.Context, input SetDeparturePermissionInput) (DeparturePermissionDTO, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	stationID, err := domain.NewStationID(input.StationID)
+	if err != nil {
+		return DeparturePermissionDTO{}, ErrInvalidStationID
+	}
+
+	state, err := s.ensureState(ctx)
+	if err != nil {
+		return DeparturePermissionDTO{}, err
+	}
+
+	if err := state.SetDeparturePermission(stationID, input.Allowed); err != nil {
+		if errors.Is(err, domain.ErrStationNotFound) {
+			return DeparturePermissionDTO{}, ErrStationNotFound
+		}
+		return DeparturePermissionDTO{}, err
+	}
+
+	allowed, err := state.DeparturePermission(stationID)
+	if err != nil {
+		if errors.Is(err, domain.ErrStationNotFound) {
+			return DeparturePermissionDTO{}, ErrStationNotFound
+		}
+		return DeparturePermissionDTO{}, err
+	}
+
+	if err := s.repo.Save(ctx, state); err != nil {
+		return DeparturePermissionDTO{}, err
+	}
+
+	return DeparturePermissionDTO{
+		StationID: stationID.String(),
+		Allowed:   allowed,
+	}, nil
 }
 
 func (s *service) ensureState(ctx context.Context) (*domain.SimulationState, error) {

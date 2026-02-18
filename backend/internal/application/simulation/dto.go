@@ -24,6 +24,11 @@ type TrainDTO struct {
 	StationID       *string `json:"stationId"`
 }
 
+type DeparturePermissionDTO struct {
+	StationID string `json:"stationId"`
+	Allowed   bool   `json:"allowed"`
+}
+
 func toSimulationDTO(state *domain.SimulationState) SimulationDTO {
 	line := state.Line()
 	stations := line.Stations()

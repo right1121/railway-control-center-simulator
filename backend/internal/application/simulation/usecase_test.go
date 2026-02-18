@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"math"
+	"reflect"
+	"strings"
 	"testing"
 
 	domain "github.com/right1121/railway-control-center-simulator/internal/domain/simulation"
@@ -120,6 +122,72 @@ func TestTickReturnsValidationErrorWhenDeltaOverflowsDuration(t *testing.T) {
 	}
 }
 
+func TestSetDeparturePermissionControlsDepartureAtBoundary(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	stationID, allowed, err := callSetDeparturePermissionForTest(t, uc, "S1", false)
+	if err != nil {
+		t.Fatalf("SetDeparturePermission failed: %v", err)
+	}
+	if stationID != "S1" {
+		t.Fatalf("expected stationId S1, got %s", stationID)
+	}
+	if allowed {
+		t.Fatalf("expected allowed false")
+	}
+
+	if _, err := uc.Tick(context.Background(), TickInput{DeltaMillis: 2000}); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+
+	waiting, err := uc.Tick(context.Background(), TickInput{DeltaMillis: 1000})
+	if err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+	if waiting.Trains[0].BlockID != "B0" || waiting.Trains[0].Progress != 1.0 {
+		t.Fatalf("expected waiting at B0 boundary, got block=%s progress=%f", waiting.Trains[0].BlockID, waiting.Trains[0].Progress)
+	}
+
+	if _, _, err := callSetDeparturePermissionForTest(t, uc, "S1", true); err != nil {
+		t.Fatalf("enable departure permission failed: %v", err)
+	}
+
+	moved, err := uc.Tick(context.Background(), TickInput{DeltaMillis: 1000})
+	if err != nil {
+		t.Fatalf("third tick failed: %v", err)
+	}
+	if moved.Trains[0].BlockID != "B1" || moved.Trains[0].Progress != 0.5 {
+		t.Fatalf("expected moved to B1 with progress 0.5, got block=%s progress=%f", moved.Trains[0].BlockID, moved.Trains[0].Progress)
+	}
+}
+
+func TestSetDeparturePermissionReturnsValidationErrorWhenStationIDIsInvalid(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, _, err := callSetDeparturePermissionForTest(t, uc, " ", true)
+	if err == nil {
+		t.Fatalf("expected validation error")
+	}
+}
+
+func TestSetDeparturePermissionReturnsNotFoundWhenStationDoesNotExist(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, _, err := callSetDeparturePermissionForTest(t, uc, "S9", true)
+	if err == nil {
+		t.Fatalf("expected not found error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		t.Fatalf("expected not found error, got %v", err)
+	}
+}
+
 type stubLineLoader struct {
 	line *domain.Line
 	err  error
@@ -147,4 +215,121 @@ func testLine(t *testing.T) *domain.Line {
 		t.Fatalf("line build failed: %v", err)
 	}
 	return line
+}
+
+func callSetDeparturePermissionForTest(t *testing.T, uc UseCase, stationID string, allowed bool) (string, bool, error) {
+	t.Helper()
+
+	method := reflect.ValueOf(uc).MethodByName("SetDeparturePermission")
+	if !method.IsValid() {
+		t.Fatalf("UseCase must implement SetDeparturePermission")
+	}
+
+	methodType := method.Type()
+	if methodType.NumOut() != 2 {
+		t.Fatalf("SetDeparturePermission must return (dto, error), got %s", methodType.String())
+	}
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	if !methodType.Out(1).Implements(errorType) {
+		t.Fatalf("SetDeparturePermission second return must be error, got %s", methodType.Out(1).String())
+	}
+	if methodType.NumIn() < 2 {
+		t.Fatalf("SetDeparturePermission must take context and input, got %s", methodType.String())
+	}
+	if methodType.In(0) != reflect.TypeOf((*context.Context)(nil)).Elem() {
+		t.Fatalf("SetDeparturePermission first argument must be context.Context, got %s", methodType.In(0).String())
+	}
+
+	callArgs := []reflect.Value{reflect.ValueOf(context.Background())}
+	switch methodType.NumIn() {
+	case 2:
+		inputValue := reflect.New(methodType.In(1)).Elem()
+		setStringField(t, inputValue, []string{"StationID", "StationId"}, stationID)
+		setBoolField(t, inputValue, "Allowed", allowed)
+		callArgs = append(callArgs, inputValue)
+	case 3:
+		if methodType.In(1).Kind() != reflect.String || methodType.In(2).Kind() != reflect.Bool {
+			t.Fatalf("SetDeparturePermission (ctx, stationID, allowed) signature mismatch: %s", methodType.String())
+		}
+		callArgs = append(callArgs, reflect.ValueOf(stationID), reflect.ValueOf(allowed))
+	default:
+		t.Fatalf("unsupported SetDeparturePermission signature: %s", methodType.String())
+	}
+
+	results := method.Call(callArgs)
+	if !results[1].IsNil() {
+		callErr, ok := results[1].Interface().(error)
+		if !ok {
+			t.Fatalf("SetDeparturePermission returned non-error value: %T", results[1].Interface())
+		}
+		return "", false, callErr
+	}
+
+	dto := dereferenceValue(t, results[0])
+	dtoStationID := getStringField(t, dto, []string{"StationID", "StationId"})
+	dtoAllowed := getBoolField(t, dto, "Allowed")
+	return dtoStationID, dtoAllowed, nil
+}
+
+func setStringField(t *testing.T, v reflect.Value, names []string, value string) {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	for _, name := range names {
+		field := target.FieldByName(name)
+		if field.IsValid() && field.CanSet() && field.Kind() == reflect.String {
+			field.SetString(value)
+			return
+		}
+	}
+	t.Fatalf("missing settable string field in %s (candidates: %v)", target.Type().String(), names)
+}
+
+func setBoolField(t *testing.T, v reflect.Value, name string, value bool) {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	field := target.FieldByName(name)
+	if !field.IsValid() || !field.CanSet() || field.Kind() != reflect.Bool {
+		t.Fatalf("missing settable bool field %s in %s", name, target.Type().String())
+	}
+	field.SetBool(value)
+}
+
+func getStringField(t *testing.T, v reflect.Value, names []string) string {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	for _, name := range names {
+		field := target.FieldByName(name)
+		if field.IsValid() && field.Kind() == reflect.String {
+			return field.String()
+		}
+	}
+	t.Fatalf("missing string field in %s (candidates: %v)", target.Type().String(), names)
+	return ""
+}
+
+func getBoolField(t *testing.T, v reflect.Value, name string) bool {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	field := target.FieldByName(name)
+	if !field.IsValid() || field.Kind() != reflect.Bool {
+		t.Fatalf("missing bool field %s in %s", name, target.Type().String())
+	}
+	return field.Bool()
+}
+
+func dereferenceValue(t *testing.T, v reflect.Value) reflect.Value {
+	t.Helper()
+
+	current := v
+	for current.Kind() == reflect.Ptr {
+		if current.IsNil() {
+			t.Fatalf("unexpected nil pointer of type %s", current.Type().String())
+		}
+		current = current.Elem()
+	}
+	return current
 }

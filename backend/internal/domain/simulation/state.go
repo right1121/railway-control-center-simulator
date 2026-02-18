@@ -6,10 +6,11 @@ import (
 )
 
 type SimulationState struct {
-	line     *Line
-	simTime  SimTime
-	trains   map[string]*Train
-	occupied map[string]TrainID
+	line                 *Line
+	simTime              SimTime
+	trains               map[string]*Train
+	occupied             map[string]TrainID
+	departurePermissions map[string]bool
 }
 
 func NewSimulationState(line *Line) (*SimulationState, error) {
@@ -17,9 +18,10 @@ func NewSimulationState(line *Line) (*SimulationState, error) {
 		return nil, ErrLineHasNoBlocks
 	}
 	return &SimulationState{
-		line:     line,
-		trains:   make(map[string]*Train),
-		occupied: make(map[string]TrainID),
+		line:                 line,
+		trains:               make(map[string]*Train),
+		occupied:             make(map[string]TrainID),
+		departurePermissions: make(map[string]bool),
 	}, nil
 }
 
@@ -119,6 +121,10 @@ func (s *SimulationState) Tick(dt TickDelta) error {
 				distance = 0
 			}
 
+			if stationID, ok := s.departureStationForTrain(train); ok && !s.isDepartureAllowed(stationID) {
+				break
+			}
+
 			nextBlock, exists, err := s.line.NextBlock(train.BlockID(), train.Forward())
 			if err != nil {
 				return err
@@ -149,6 +155,21 @@ func (s *SimulationState) Tick(dt TickDelta) error {
 	}
 
 	return nil
+}
+
+func (s *SimulationState) SetDeparturePermission(stationID StationID, allowed bool) error {
+	if !s.line.HasStation(stationID) {
+		return ErrStationNotFound
+	}
+	s.departurePermissions[stationID.String()] = allowed
+	return nil
+}
+
+func (s *SimulationState) DeparturePermission(stationID StationID) (bool, error) {
+	if !s.line.HasStation(stationID) {
+		return false, ErrStationNotFound
+	}
+	return s.isDepartureAllowed(stationID), nil
 }
 
 func (s *SimulationState) IsAtBoundary(trainID TrainID) bool {
@@ -189,6 +210,28 @@ func (s *SimulationState) sortedTrainKeys() []string {
 	}
 	sort.Strings(keys)
 	return keys
+}
+
+func (s *SimulationState) isDepartureAllowed(stationID StationID) bool {
+	allowed, ok := s.departurePermissions[stationID.String()]
+	if !ok {
+		return true
+	}
+	return allowed
+}
+
+func (s *SimulationState) departureStationForTrain(train *Train) (StationID, bool) {
+	progress := train.Progress().Float64()
+	if train.Forward() {
+		if !isProgressOne(progress) {
+			return StationID{}, false
+		}
+		return s.line.ToStation(train.BlockID())
+	}
+	if !isProgressZero(progress) {
+		return StationID{}, false
+	}
+	return s.line.FromStation(train.BlockID())
 }
 
 func (l *Line) HasBlock(id BlockID) bool {

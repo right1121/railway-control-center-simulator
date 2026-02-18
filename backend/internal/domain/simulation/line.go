@@ -1,9 +1,10 @@
 package simulation
 
 type Line struct {
-	stations   []StationID
-	blocks     []BlockID
-	blockIndex map[string]int
+	stations     []StationID
+	blocks       []BlockID
+	stationIndex map[string]int
+	blockIndex   map[string]int
 }
 
 func NewLine(stations []StationID, blocks []BlockID) (*Line, error) {
@@ -15,12 +16,14 @@ func NewLine(stations []StationID, blocks []BlockID) (*Line, error) {
 	}
 
 	stationSeen := make(map[string]struct{}, len(stations))
-	for _, station := range stations {
+	stationIndex := make(map[string]int, len(stations))
+	for i, station := range stations {
 		key := station.String()
 		if _, exists := stationSeen[key]; exists {
 			return nil, ErrLineDuplicateStationID
 		}
 		stationSeen[key] = struct{}{}
+		stationIndex[key] = i
 	}
 
 	blockSeen := make(map[string]struct{}, len(blocks))
@@ -41,9 +44,10 @@ func NewLine(stations []StationID, blocks []BlockID) (*Line, error) {
 	copy(blocksCopy, blocks)
 
 	return &Line{
-		stations:   stationsCopy,
-		blocks:     blocksCopy,
-		blockIndex: blockIndex,
+		stations:     stationsCopy,
+		blocks:       blocksCopy,
+		stationIndex: stationIndex,
+		blockIndex:   blockIndex,
 	}, nil
 }
 
@@ -64,6 +68,11 @@ func (l *Line) BlockAt(index int) (BlockID, bool) {
 		return BlockID{}, false
 	}
 	return l.blocks[index], true
+}
+
+func (l *Line) HasStation(id StationID) bool {
+	_, ok := l.stationIndex[id.String()]
+	return ok
 }
 
 func (l *Line) IndexOfBlock(id BlockID) (int, bool) {

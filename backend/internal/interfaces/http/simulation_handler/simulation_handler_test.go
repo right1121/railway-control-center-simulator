@@ -137,12 +137,92 @@ func TestTickReturnsInternalErrorOnUseCaseFailure(t *testing.T) {
 	assertErrorBody(t, rec.Body.Bytes(), "INTERNAL", "internal error")
 }
 
+func TestSetDeparturePermissionReturnsDTO(t *testing.T) {
+	uc := &stubSimulationUseCase{
+		permissionDTO: simulationapp.DeparturePermissionDTO{
+			StationID: "S1",
+			Allowed:   true,
+		},
+	}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/permission", strings.NewReader(`{"stationId":"S1","allowed":true}`))
+	rec := httptest.NewRecorder()
+	handler.SetDeparturePermission(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rec.Code)
+	}
+	if uc.permissionInput.StationID != "S1" {
+		t.Fatalf("expected stationId S1, got %s", uc.permissionInput.StationID)
+	}
+	if !uc.permissionInput.Allowed {
+		t.Fatalf("expected allowed true")
+	}
+
+	var got simulationapp.DeparturePermissionDTO
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+	if got.StationID != "S1" || !got.Allowed {
+		t.Fatalf("unexpected permission response: %+v", got)
+	}
+}
+
+func TestSetDeparturePermissionReturnsBadJSONOnDecodeFailure(t *testing.T) {
+	uc := &stubSimulationUseCase{}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/permission", strings.NewReader(`{"stationId":`))
+	rec := httptest.NewRecorder()
+	handler.SetDeparturePermission(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "BAD_JSON", "invalid json")
+}
+
+func TestSetDeparturePermissionReturnsBadRequestOnInvalidStationID(t *testing.T) {
+	uc := &stubSimulationUseCase{permissionErr: simulationapp.ErrInvalidStationID}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/permission", strings.NewReader(`{"stationId":" ","allowed":true}`))
+	rec := httptest.NewRecorder()
+	handler.SetDeparturePermission(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "INVALID_STATION_ID", "invalid station id")
+}
+
+func TestSetDeparturePermissionReturnsNotFoundWhenStationDoesNotExist(t *testing.T) {
+	uc := &stubSimulationUseCase{permissionErr: simulationapp.ErrStationNotFound}
+	handler := NewSimulationHandler(uc)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/simulation/permission", strings.NewReader(`{"stationId":"S9","allowed":true}`))
+	rec := httptest.NewRecorder()
+	handler.SetDeparturePermission(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", rec.Code)
+	}
+
+	assertErrorBody(t, rec.Body.Bytes(), "STATION_NOT_FOUND", "station not found")
+}
+
 type stubSimulationUseCase struct {
-	getDTO    simulationapp.SimulationDTO
-	tickDTO   simulationapp.SimulationDTO
-	getErr    error
-	tickErr   error
-	tickInput simulationapp.TickInput
+	getDTO          simulationapp.SimulationDTO
+	tickDTO         simulationapp.SimulationDTO
+	permissionDTO   simulationapp.DeparturePermissionDTO
+	getErr          error
+	tickErr         error
+	permissionErr   error
+	tickInput       simulationapp.TickInput
+	permissionInput simulationapp.SetDeparturePermissionInput
 }
 
 func (s *stubSimulationUseCase) GetSimulation(ctx context.Context) (simulationapp.SimulationDTO, error) {
@@ -154,6 +234,12 @@ func (s *stubSimulationUseCase) Tick(ctx context.Context, input simulationapp.Ti
 	_ = ctx
 	s.tickInput = input
 	return s.tickDTO, s.tickErr
+}
+
+func (s *stubSimulationUseCase) SetDeparturePermission(ctx context.Context, input simulationapp.SetDeparturePermissionInput) (simulationapp.DeparturePermissionDTO, error) {
+	_ = ctx
+	s.permissionInput = input
+	return s.permissionDTO, s.permissionErr
 }
 
 func testSimulationDTO() simulationapp.SimulationDTO {

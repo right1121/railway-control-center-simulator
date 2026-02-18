@@ -2,6 +2,8 @@ package simulation
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -167,6 +169,114 @@ func TestTickCanEnterFreedBlockOnNextTick(t *testing.T) {
 	second := state.Trains()[0]
 	if second.BlockID().String() != "B1" {
 		t.Fatalf("expected T0 to enter B1 on second tick, got %s", second.BlockID().String())
+	}
+}
+
+func TestTickDoesNotDepartAtBoundaryWhenDeparturePermissionIsOff(t *testing.T) {
+	state := newStateWithBlocks(t, 2)
+	train := newTestTrain(t, "T0", "B0", 1.0, true, 0.5)
+	if err := state.AddTrain(train); err != nil {
+		t.Fatalf("add train failed: %v", err)
+	}
+
+	if err := setDeparturePermissionForTest(t, state, "S1", false); err != nil {
+		t.Fatalf("set departure permission failed: %v", err)
+	}
+
+	delta, _ := NewTickDelta(time.Second)
+	if err := state.Tick(delta); err != nil {
+		t.Fatalf("tick failed: %v", err)
+	}
+
+	got := state.Trains()[0]
+	if got.BlockID().String() != "B0" {
+		t.Fatalf("expected block B0, got %s", got.BlockID().String())
+	}
+	if got.Progress().Float64() != 1.0 {
+		t.Fatalf("expected progress 1.0, got %f", got.Progress().Float64())
+	}
+}
+
+func TestTickDepartsOnNextTickAfterDeparturePermissionTurnsOn(t *testing.T) {
+	state := newStateWithBlocks(t, 2)
+	train := newTestTrain(t, "T0", "B0", 1.0, true, 0.5)
+	if err := state.AddTrain(train); err != nil {
+		t.Fatalf("add train failed: %v", err)
+	}
+
+	if err := setDeparturePermissionForTest(t, state, "S1", false); err != nil {
+		t.Fatalf("set departure permission failed: %v", err)
+	}
+
+	delta, _ := NewTickDelta(time.Second)
+	if err := state.Tick(delta); err != nil {
+		t.Fatalf("first tick failed: %v", err)
+	}
+
+	waiting := state.Trains()[0]
+	if waiting.BlockID().String() != "B0" || waiting.Progress().Float64() != 1.0 {
+		t.Fatalf("expected waiting at B0 boundary, got block=%s progress=%f", waiting.BlockID().String(), waiting.Progress().Float64())
+	}
+
+	if err := setDeparturePermissionForTest(t, state, "S1", true); err != nil {
+		t.Fatalf("enable departure permission failed: %v", err)
+	}
+
+	if err := state.Tick(delta); err != nil {
+		t.Fatalf("second tick failed: %v", err)
+	}
+
+	got := state.Trains()[0]
+	if got.BlockID().String() != "B1" {
+		t.Fatalf("expected block B1, got %s", got.BlockID().String())
+	}
+	if got.Progress().Float64() != 0.5 {
+		t.Fatalf("expected progress 0.5, got %f", got.Progress().Float64())
+	}
+}
+
+func TestTickDoesNotEnterOccupiedNextBlockEvenWhenDeparturePermissionIsOn(t *testing.T) {
+	state := newStateWithBlocks(t, 3)
+	lead := newTestTrain(t, "T0", "B0", 1.0, true, 0.5)
+	blocker := newTestTrain(t, "T1", "B1", 0.4, true, 0.5)
+
+	if err := state.AddTrain(lead); err != nil {
+		t.Fatalf("add lead failed: %v", err)
+	}
+	if err := state.AddTrain(blocker); err != nil {
+		t.Fatalf("add blocker failed: %v", err)
+	}
+
+	if err := setDeparturePermissionForTest(t, state, "S1", true); err != nil {
+		t.Fatalf("set departure permission failed: %v", err)
+	}
+
+	delta, _ := NewTickDelta(time.Second)
+	if err := state.Tick(delta); err != nil {
+		t.Fatalf("tick failed: %v", err)
+	}
+
+	got := state.Trains()[0]
+	if got.ID().String() != "T0" {
+		t.Fatalf("expected first sorted train T0, got %s", got.ID().String())
+	}
+	if got.BlockID().String() != "B0" {
+		t.Fatalf("expected T0 to stay in B0, got %s", got.BlockID().String())
+	}
+	if got.Progress().Float64() != 1.0 {
+		t.Fatalf("expected T0 clamped at boundary, got %f", got.Progress().Float64())
+	}
+}
+
+func TestSetDeparturePermissionRejectsUnknownStation(t *testing.T) {
+	state := newStateWithBlocks(t, 2)
+
+	err := setDeparturePermissionForTest(t, state, "S9", true)
+	if err == nil {
+		t.Fatalf("expected error for unknown station")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "not found") {
+		t.Fatalf("expected not found error, got %v", err)
 	}
 }
 
@@ -377,4 +487,38 @@ func snapshot(state *SimulationState) string {
 		out += fmt.Sprintf("%s:%s:%.9f:%t:%t;", train.ID().String(), train.BlockID().String(), train.Progress().Float64(), train.Forward(), train.PendingTurnback())
 	}
 	return out
+}
+
+func setDeparturePermissionForTest(t *testing.T, state *SimulationState, stationID string, allowed bool) error {
+	t.Helper()
+
+	method := reflect.ValueOf(state).MethodByName("SetDeparturePermission")
+	if !method.IsValid() {
+		t.Fatalf("SimulationState must implement SetDeparturePermission(StationID, bool) error")
+	}
+
+	methodType := method.Type()
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	if methodType.NumIn() != 2 || methodType.In(0) != reflect.TypeOf(StationID{}) || methodType.In(1).Kind() != reflect.Bool {
+		t.Fatalf("SetDeparturePermission signature must be (StationID, bool), got %s", methodType.String())
+	}
+	if methodType.NumOut() != 1 || !methodType.Out(0).Implements(errorType) {
+		t.Fatalf("SetDeparturePermission must return error, got %s", methodType.String())
+	}
+
+	station, err := NewStationID(stationID)
+	if err != nil {
+		t.Fatalf("new station id failed: %v", err)
+	}
+
+	results := method.Call([]reflect.Value{reflect.ValueOf(station), reflect.ValueOf(allowed)})
+	if results[0].IsNil() {
+		return nil
+	}
+
+	callErr, ok := results[0].Interface().(error)
+	if !ok {
+		t.Fatalf("SetDeparturePermission returned non-error value: %T", results[0].Interface())
+	}
+	return callErr
 }

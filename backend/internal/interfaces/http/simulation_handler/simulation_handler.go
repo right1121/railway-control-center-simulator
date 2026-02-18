@@ -36,6 +36,14 @@ type permissionReq struct {
 	Allowed   bool   `json:"allowed"`
 }
 
+type addTrainReq struct {
+	TrainID   string  `json:"trainId"`
+	BlockID   string  `json:"blockId"`
+	Progress  float64 `json:"progress"`
+	Direction string  `json:"direction"`
+	Speed     float64 `json:"speed"`
+}
+
 func (h *SimulationHandler) Tick(w http.ResponseWriter, r *http.Request) {
 	var req tickReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -80,6 +88,52 @@ func (h *SimulationHandler) SetDeparturePermission(w http.ResponseWriter, r *htt
 		}
 		utils.WriteJSON(w, http.StatusInternalServerError, utils.ErrBody("INTERNAL", "internal error"))
 		return
+	}
+
+	utils.WriteJSON(w, http.StatusOK, dto)
+}
+
+func (h *SimulationHandler) AddTrain(w http.ResponseWriter, r *http.Request) {
+	var req addTrainReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.WriteJSON(w, http.StatusBadRequest, utils.BadJSON())
+		return
+	}
+
+	dto, err := h.usecase.AddTrain(r.Context(), simulationapp.AddTrainInput{
+		TrainID:   req.TrainID,
+		BlockID:   req.BlockID,
+		Progress:  req.Progress,
+		Direction: req.Direction,
+		Speed:     req.Speed,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, simulationapp.ErrInvalidTrainID):
+			utils.WriteJSON(w, http.StatusBadRequest, utils.ErrBody("INVALID_TRAIN_ID", "invalid train id"))
+			return
+		case errors.Is(err, simulationapp.ErrInvalidBlockID):
+			utils.WriteJSON(w, http.StatusBadRequest, utils.ErrBody("INVALID_BLOCK_ID", "invalid block id"))
+			return
+		case errors.Is(err, simulationapp.ErrInvalidProgress):
+			utils.WriteJSON(w, http.StatusBadRequest, utils.ErrBody("INVALID_PROGRESS", "invalid progress"))
+			return
+		case errors.Is(err, simulationapp.ErrInvalidDirection):
+			utils.WriteJSON(w, http.StatusBadRequest, utils.ErrBody("INVALID_DIRECTION", "invalid direction"))
+			return
+		case errors.Is(err, simulationapp.ErrInvalidSpeed):
+			utils.WriteJSON(w, http.StatusBadRequest, utils.ErrBody("INVALID_SPEED", "invalid speed"))
+			return
+		case errors.Is(err, simulationapp.ErrBlockNotFound):
+			utils.WriteJSON(w, http.StatusNotFound, utils.ErrBody("BLOCK_NOT_FOUND", "block not found"))
+			return
+		case errors.Is(err, simulationapp.ErrTrainConflict):
+			utils.WriteJSON(w, http.StatusConflict, utils.ErrBody("TRAIN_CONFLICT", "train conflict"))
+			return
+		default:
+			utils.WriteJSON(w, http.StatusInternalServerError, utils.ErrBody("INTERNAL", "internal error"))
+			return
+		}
 	}
 
 	utils.WriteJSON(w, http.StatusOK, dto)

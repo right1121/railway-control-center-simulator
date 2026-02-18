@@ -329,6 +329,61 @@ func TestTickDeterministicAcrossInsertionOrder(t *testing.T) {
 	}
 }
 
+func TestTickCompetitionForSameNextBlockIsDeterministicAndSafe(t *testing.T) {
+	makeState := func(order []string) *SimulationState {
+		t.Helper()
+		state := newStateWithBlocks(t, 3)
+		for _, id := range order {
+			switch id {
+			case "T0":
+				if err := state.AddTrain(newTestTrain(t, "T0", "B0", 0.75, true, 0.5)); err != nil {
+					t.Fatalf("add T0 failed: %v", err)
+				}
+			case "T1":
+				if err := state.AddTrain(newTestTrain(t, "T1", "B2", 0.25, false, 0.5)); err != nil {
+					t.Fatalf("add T1 failed: %v", err)
+				}
+			default:
+				t.Fatalf("unknown train id: %s", id)
+			}
+		}
+		return state
+	}
+
+	left := makeState([]string{"T0", "T1"})
+	right := makeState([]string{"T1", "T0"})
+
+	delta, _ := NewTickDelta(time.Second)
+	if err := left.Tick(delta); err != nil {
+		t.Fatalf("left tick failed: %v", err)
+	}
+	if err := right.Tick(delta); err != nil {
+		t.Fatalf("right tick failed: %v", err)
+	}
+
+	if snapshot(left) != snapshot(right) {
+		t.Fatalf("expected deterministic state, left=%q right=%q", snapshot(left), snapshot(right))
+	}
+
+	trains := left.Trains()
+	if len(trains) != 2 {
+		t.Fatalf("expected 2 trains, got %d", len(trains))
+	}
+
+	lead := trains[0]
+	follow := trains[1]
+	if lead.ID().String() != "T0" || follow.ID().String() != "T1" {
+		t.Fatalf("expected sorted order [T0,T1], got [%s,%s]", lead.ID().String(), follow.ID().String())
+	}
+
+	if lead.BlockID().String() != "B1" {
+		t.Fatalf("expected T0 entered B1, got %s", lead.BlockID().String())
+	}
+	if follow.BlockID().String() != "B2" || follow.Progress().Float64() != 0.0 {
+		t.Fatalf("expected T1 to wait at B2 boundary, got block=%s progress=%f", follow.BlockID().String(), follow.Progress().Float64())
+	}
+}
+
 func TestTrainStationAtBoundaryReturnsToStationForForwardAtProgressOne(t *testing.T) {
 	state := newStateWithBlocks(t, 2)
 	train := newTestTrain(t, "T0", "B0", 1.0, true, 0.5)

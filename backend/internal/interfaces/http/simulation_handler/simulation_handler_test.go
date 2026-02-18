@@ -217,11 +217,14 @@ func TestSetDeparturePermissionReturnsNotFoundWhenStationDoesNotExist(t *testing
 type stubSimulationUseCase struct {
 	getDTO          simulationapp.SimulationDTO
 	tickDTO         simulationapp.SimulationDTO
+	addTrainDTO     simulationapp.SimulationDTO
 	permissionDTO   simulationapp.DeparturePermissionDTO
 	getErr          error
 	tickErr         error
+	addTrainErr     error
 	permissionErr   error
 	tickInput       simulationapp.TickInput
+	addTrainInput   simulationapp.AddTrainInput
 	permissionInput simulationapp.SetDeparturePermissionInput
 }
 
@@ -234,6 +237,12 @@ func (s *stubSimulationUseCase) Tick(ctx context.Context, input simulationapp.Ti
 	_ = ctx
 	s.tickInput = input
 	return s.tickDTO, s.tickErr
+}
+
+func (s *stubSimulationUseCase) AddTrain(ctx context.Context, input simulationapp.AddTrainInput) (simulationapp.SimulationDTO, error) {
+	_ = ctx
+	s.addTrainInput = input
+	return s.addTrainDTO, s.addTrainErr
 }
 
 func (s *stubSimulationUseCase) SetDeparturePermission(ctx context.Context, input simulationapp.SetDeparturePermissionInput) (simulationapp.DeparturePermissionDTO, error) {

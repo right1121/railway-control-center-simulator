@@ -188,6 +188,79 @@ func TestSetDeparturePermissionReturnsNotFoundWhenStationDoesNotExist(t *testing
 	}
 }
 
+func TestAddTrainReturnsSimulationDTOWithStableOrder(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	dto, err := callAddTrainForTest(t, uc, "T1", "B1", 0.0, "Down", 0.5)
+	if err != nil {
+		t.Fatalf("AddTrain failed: %v", err)
+	}
+
+	if len(dto.Trains) != 2 {
+		t.Fatalf("expected 2 trains, got %d", len(dto.Trains))
+	}
+	if dto.Trains[0].ID != "T0" || dto.Trains[1].ID != "T1" {
+		t.Fatalf("expected stable sorted order [T0,T1], got [%s,%s]", dto.Trains[0].ID, dto.Trains[1].ID)
+	}
+}
+
+func TestAddTrainRejectsDuplicateTrainID(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, err := callAddTrainForTest(t, uc, "T0", "B1", 0.0, "Up", 0.5)
+	if !errors.Is(err, ErrTrainConflict) {
+		t.Fatalf("expected duplicate train id error")
+	}
+}
+
+func TestAddTrainRejectsOccupiedBlock(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, err := callAddTrainForTest(t, uc, "T1", "B0", 0.0, "Up", 0.5)
+	if !errors.Is(err, ErrTrainConflict) {
+		t.Fatalf("expected occupied block error")
+	}
+}
+
+func TestAddTrainRejectsUnknownBlock(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, err := callAddTrainForTest(t, uc, "T1", "B9", 0.0, "Up", 0.5)
+	if !errors.Is(err, ErrBlockNotFound) {
+		t.Fatalf("expected unknown block error")
+	}
+}
+
+func TestAddTrainRejectsOutOfRangeProgress(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, err := callAddTrainForTest(t, uc, "T1", "B1", 1.1, "Up", 0.5)
+	if !errors.Is(err, ErrInvalidProgress) {
+		t.Fatalf("expected progress validation error")
+	}
+}
+
+func TestAddTrainRejectsNonPositiveSpeed(t *testing.T) {
+	repo := memory.NewInMemorySimulationRepository()
+	line := testLine(t)
+	uc := NewUseCase(repo, &stubLineLoader{line: line})
+
+	_, err := callAddTrainForTest(t, uc, "T1", "B1", 0.0, "Up", 0)
+	if !errors.Is(err, ErrInvalidSpeed) {
+		t.Fatalf("expected speed validation error")
+	}
+}
+
 type stubLineLoader struct {
 	line *domain.Line
 	err  error
@@ -271,6 +344,73 @@ func callSetDeparturePermissionForTest(t *testing.T, uc UseCase, stationID strin
 	return dtoStationID, dtoAllowed, nil
 }
 
+func callAddTrainForTest(t *testing.T, uc UseCase, trainID string, blockID string, progress float64, direction string, speed float64) (SimulationDTO, error) {
+	t.Helper()
+
+	method := reflect.ValueOf(uc).MethodByName("AddTrain")
+	if !method.IsValid() {
+		t.Fatalf("UseCase must implement AddTrain")
+	}
+
+	methodType := method.Type()
+	if methodType.NumOut() != 2 {
+		t.Fatalf("AddTrain must return (dto, error), got %s", methodType.String())
+	}
+	errorType := reflect.TypeOf((*error)(nil)).Elem()
+	if !methodType.Out(1).Implements(errorType) {
+		t.Fatalf("AddTrain second return must be error, got %s", methodType.Out(1).String())
+	}
+	if methodType.NumIn() < 2 {
+		t.Fatalf("AddTrain must take context and input, got %s", methodType.String())
+	}
+	if methodType.In(0) != reflect.TypeOf((*context.Context)(nil)).Elem() {
+		t.Fatalf("AddTrain first argument must be context.Context, got %s", methodType.In(0).String())
+	}
+
+	callArgs := []reflect.Value{reflect.ValueOf(context.Background())}
+	switch methodType.NumIn() {
+	case 2:
+		inputValue := reflect.New(methodType.In(1)).Elem()
+		setStringField(t, inputValue, []string{"TrainID", "TrainId"}, trainID)
+		setStringField(t, inputValue, []string{"BlockID", "BlockId"}, blockID)
+		setFloatField(t, inputValue, []string{"Progress"}, progress)
+		setDirectionField(t, inputValue, direction)
+		setFloatField(t, inputValue, []string{"Speed"}, speed)
+		callArgs = append(callArgs, inputValue)
+	case 6:
+		if methodType.In(1).Kind() != reflect.String || methodType.In(2).Kind() != reflect.String || methodType.In(3).Kind() != reflect.Float64 || methodType.In(5).Kind() != reflect.Float64 {
+			t.Fatalf("AddTrain signature mismatch: %s", methodType.String())
+		}
+		callArgs = append(callArgs, reflect.ValueOf(trainID), reflect.ValueOf(blockID), reflect.ValueOf(progress))
+		if methodType.In(4).Kind() == reflect.String {
+			callArgs = append(callArgs, reflect.ValueOf(direction))
+		} else if methodType.In(4).Kind() == reflect.Bool {
+			callArgs = append(callArgs, reflect.ValueOf(strings.EqualFold(direction, "up")))
+		} else {
+			t.Fatalf("AddTrain direction argument must be string or bool, got %s", methodType.In(4).String())
+		}
+		callArgs = append(callArgs, reflect.ValueOf(speed))
+	default:
+		t.Fatalf("unsupported AddTrain signature: %s", methodType.String())
+	}
+
+	results := method.Call(callArgs)
+	if !results[1].IsNil() {
+		callErr, ok := results[1].Interface().(error)
+		if !ok {
+			t.Fatalf("AddTrain returned non-error value: %T", results[1].Interface())
+		}
+		return SimulationDTO{}, callErr
+	}
+
+	dtoValue := dereferenceValue(t, results[0])
+	dto, ok := dtoValue.Interface().(SimulationDTO)
+	if !ok {
+		t.Fatalf("AddTrain first return must be SimulationDTO-compatible, got %s", dtoValue.Type().String())
+	}
+	return dto, nil
+}
+
 func setStringField(t *testing.T, v reflect.Value, names []string, value string) {
 	t.Helper()
 
@@ -294,6 +434,39 @@ func setBoolField(t *testing.T, v reflect.Value, name string, value bool) {
 		t.Fatalf("missing settable bool field %s in %s", name, target.Type().String())
 	}
 	field.SetBool(value)
+}
+
+func setFloatField(t *testing.T, v reflect.Value, names []string, value float64) {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	for _, name := range names {
+		field := target.FieldByName(name)
+		if field.IsValid() && field.CanSet() && field.Kind() == reflect.Float64 {
+			field.SetFloat(value)
+			return
+		}
+	}
+	t.Fatalf("missing settable float64 field in %s (candidates: %v)", target.Type().String(), names)
+}
+
+func setDirectionField(t *testing.T, v reflect.Value, direction string) {
+	t.Helper()
+
+	target := dereferenceValue(t, v)
+	stringField := target.FieldByName("Direction")
+	if stringField.IsValid() && stringField.CanSet() && stringField.Kind() == reflect.String {
+		stringField.SetString(direction)
+		return
+	}
+
+	boolField := target.FieldByName("Forward")
+	if boolField.IsValid() && boolField.CanSet() && boolField.Kind() == reflect.Bool {
+		boolField.SetBool(strings.EqualFold(direction, "up"))
+		return
+	}
+
+	t.Fatalf("missing settable direction field (Direction|string or Forward|bool) in %s", target.Type().String())
 }
 
 func getStringField(t *testing.T, v reflect.Value, names []string) string {

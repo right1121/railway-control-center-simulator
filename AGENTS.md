@@ -1,171 +1,280 @@
-# AGENT.md
+# AGENTS.md
 
-This document defines **rules, constraints, and intentions** for any developer or AI agent
-working on this repository.
-
-The goal is to keep the project **coherent, evolvable, and aligned with its original purpose**.
+この文書は、このリポジトリで作業する人間の開発者および AI エージェント向けの共通ルールを定義します。
+最優先は、整合性があり、決定論的で、訓練用途に耐えるシミュレーションコアです。
 
 ---
 
-## 🎯 Project Intent
+## プロジェクト意図
 
-This project is a **training-oriented railway control center simulator**, not a game.
+このプロジェクトは、**鉄道管制訓練用シミュレーター**であり、ゲームではありません。
 
-Key intentions:
+中核となる優先事項:
 
-- Training use over entertainment
-- Deterministic, explainable simulation
-- Multiple dispatchers operating on a shared state
-- Safety and correctness over visual fidelity
+- 娯楽性より訓練上の正確性
+- 決定論的かつ説明可能な振る舞い
+- 複数管制員による共有状態の安全性
+- 見た目の忠実さより正しさと不変条件
 
-Any change must respect these principles.
+これらを弱める変更は無効です。
 
 ---
 
-## 🧠 Architectural Principles (Must Follow)
+## MVP ゴール（現行の再定義）
 
-### Layered Architecture (DDD-inspired)
+MVP コアは次をすべて満たす必要があります:
 
-Strict separation of concerns:
+- 直線路線トポロジー
+- 固定閉塞（ブロック占有）
+- 列車は明示的な `Tick(dt)` で進行
+- 列車は駅境界で停止
+- 列車は許可がある場合のみ発車
+- 列車は占有済みブロックへ進入しない
+- HTTP ベースで操作可能
+
+これが最小の「訓練コア」です。
+
+---
+
+## アーキテクチャ原則（必須）
+
+厳密なレイヤードアーキテクチャ（DDD 風）を守ること:
 
 - **Domain**
-  - Pure business rules and invariants
-  - No HTTP, JSON, DB, time.Now, random, or framework dependencies
+  - 業務ルールと不変条件のみ
+  - HTTP/JSON/DB/フレームワーク依存を持たない
+  - `time.Now()` やランダム挙動を使わない
 - **Application (UseCase)**
-  - Orchestrates domain behavior
-  - Returns DTOs, not domain entities
+  - Domain の振る舞いをオーケストレーションする
+  - DTO を返す（Domain エンティティは返さない）
 - **Infrastructure**
-  - Implements repositories and external services
+  - Repository / 外部サービス実装のみ
 - **Presentation**
-  - HTTP / WebSocket / UI adapters
-  - Must not touch domain objects directly
+  - HTTP/WebSocket/UI アダプタのみ
+  - 業務ルールを直接実装しない
 - **DI**
-  - Dependency wiring only
-  - No business logic
+  - 依存関係の配線のみ
+  - 業務ロジックを置かない
 
-Violating layer boundaries is considered a bug.
-
----
-
-## 🚫 Forbidden Actions
-
-The following are explicitly **not allowed** without redesign discussion:
-
-- Introducing Event Sourcing or CQRS prematurely
-- Returning domain entities from UseCases
-- Adding persistence logic to domain or application layers
-- Letting repositories generate business IDs
-- Making HTTP handlers contain business rules
-- Introducing game mechanics (scores, randomness, fun-first logic)
+レイヤー違反はバグとして扱います。
 
 ---
 
-## 🚆 Simulation Model Rules
+## 禁止事項
 
-### Line & Stations
+明示的な再設計合意なしに、次を行わないこと:
 
-- Line shape is **linear**
-- Stations are represented as **block boundaries**
-- No "station entity" with position/state
-- Blocks are the only occupiable units (fixed block system)
-
-Station -- Block -- Station -- Block -- Station
-
-
-### Trains
-
-- Trains always exist **on a block**
-- Trains never "exist at a station"
-- Train position is expressed as:
-  - current block
-  - progress (0.0–1.0)
-  - direction
-- Speed is constant (for MVP)
-
-### Station Logic
-
-- Station events occur **only when a train reaches a block boundary**
-- Departure permission is checked **only when entering the next block**
-- Waiting at stations is represented by clamping progress to the boundary
+- Event Sourcing / CQRS の早期導入
+- UseCase から Domain エンティティを返す
+- Domain / Application 層へ永続化関心を持ち込む
+- Repository で業務 ID を生成する
+- HTTP ハンドラに業務ルールを実装する
+- ゲーム的要素（スコア・ランダム・楽しさ優先）を導入する
 
 ---
 
-## ⏱️ Time Handling
+## シミュレーションモデル規則
 
-- Simulation advances only via explicit `Tick(dt)`
-- No implicit time progression
-- No direct `time.Now()` usage in domain
-- If time is needed in UseCases, inject a Clock abstraction
+### 路線と駅
 
----
+- 路線形状は直線
+- 駅はブロック境界としてのみ表現する
+- 列車に対する独立した「駅位置状態」は持たない
+- 占有可能単位はブロックのみ（固定閉塞）
 
-## 🔐 Invariants (Must Not Be Broken)
+### 列車
 
-- One block may be occupied by **at most one train**
-- A train may not enter an occupied block
-- A train may not depart a station without permission
-- Terminal stations stop trains permanently (unless redesigned)
+- 列車は常にブロック上に存在する
+- 位置は次で表現する:
+  - `currentBlock`
+  - `progress`（`0.0..1.0`）
+  - `direction`（`Up` / `Down`）
+- MVP では速度は定数
 
-Any code that bypasses these checks is invalid.
+### 駅境界セマンティクス
 
----
-
-## 🧩 Repository Rules
-
-- Repository interfaces belong to the **domain layer**
-- Repositories must not:
-  - Generate IDs
-  - Apply business rules
-  - Mutate domain state implicitly
-- `Get / Create / Save` semantics must be respected
+- 駅イベントは境界（`progress == 0` または `1`）でのみ発生
+- `0 < progress < 1` は駅ではない
+- 上り方向の境界駅は `progress == 1` の `ToStation(currentBlock)`
+- 下り方向の境界駅は `progress == 0` の `FromStation(currentBlock)`
 
 ---
 
-## 🧪 Testing Philosophy
+## 時間と決定論
 
-- Domain logic must be testable without HTTP or infrastructure
-- UseCases should be testable with in-memory repositories
-- Simulation behavior should be deterministic under fixed inputs
-
----
-
-## 🤖 AI Agent Guidelines
-
-When acting as an AI agent on this repository:
-
-- Prefer **clarity over cleverness**
-- Do not introduce abstractions unless there is a concrete need
-- Ask before restructuring core domain concepts
-- Assume training correctness > performance > convenience
-
-If unsure, **do less, not more**.
+- シミュレーションは明示的な `Tick(dt)` でのみ進行
+- 暗黙の時間進行は禁止
+- Domain で実時間（wall-clock）を使わない
+- 同じ初期状態 + 同じ `dt` は同じ状態 / スナップショットを返す
+- `map` 走査順に依存しない
+- 列車更新順は決定論的に固定する（例: train ID ソート）
+- DTO の列車配列順も決定論的に固定する
 
 ---
 
-## 🧭 Evolution Strategy
+## Tick 挙動要件
 
-This project is expected to grow in this order:
-
-1. Time-based simulation (`Tick`)
-2. WebSocket state synchronization
-3. Logging / replay
-4. Persistence
-5. Line branching / points
-
-Skipping ahead in this list is discouraged.
-
----
-
-## 📌 Status
-
-- MVP architecture is stable
-- Changes should be incremental and justified
+- 境界未到達なら同一ブロック内で進捗のみ更新
+- 境界ちょうど到達時は overflow なしの境界状態
+- 境界超過時は、進行可能なら overflow を次ブロックへ繰り越す
+- 次ブロック占有中なら境界へクランプして待機
+- 次ブロックが解放されたら次 `Tick` で進入可能
+- `dt <= 0` は拒否する
+- 大きな `dt` の扱いは仕様化してテストで固定する:
+  - 1 Tick で複数ブロック跨ぎを許容する、または
+  - `dt` 上限を設けて拒否する
 
 ---
 
-## 📝 Final Note
+## 終端挙動ルール
 
-This codebase is designed to be **understandable first, extensible second**.
+終端挙動はコードとテストで単一の真実（single source of truth）にすること。
 
-If a change makes the system harder to reason about,
-it is probably the wrong change.
+現行実装の基準は折返し仕様です:
+
+- 終端境界到達時に列車は `PendingTurnback` へ遷移
+- 次の `Tick` で方向反転し、移動を継続
+
+終端停止仕様へ変更する場合は、必ず次を同時更新すること:
+
+- Domain 挙動
+- テスト
+- `AGENTS.md`
+- `doc/projects/simuration-code/01.SimulationCore.md`
+- `doc/projects/simuration-code/milestone1_context_tests.md`
+
+終端仕様の混在は許容しません。
+
+---
+
+## 不変条件（絶対に壊さない）
+
+- 1 ブロックの同時占有は最大 1 列車
+- 列車は占有済みブロックへ進入できない
+- 占有更新は `release(from)` と `occupy(to)` を対で行う
+- 遷移後に占有の二重登録を起こさない
+- 必要な許可なしで発車できない（Milestone 2 の機能）
+
+これらの検証を迂回するコードは無効です。
+
+---
+
+## Domain API と DTO 契約
+
+UI/DTO は生の `progress` 計算から業務状態を推測してはならない。
+
+Domain は駅境界情報を明示的に取得できる API を提供すること（例）:
+
+- `TrainStation(trainID) (stationID, ok)`
+- `IsAtBoundary(trainID) bool`
+- `TrainStationAtBoundary(trainID) (stationID, ok)`
+
+DTO は境界状態を明示的に公開すること（例）:
+
+- `atBoundary`
+- `stationId`（必要に応じて駅メタデータ）
+
+---
+
+## 列車追加 / 初期配置ルール
+
+列車追加時は次を満たすこと:
+
+- Train ID 重複を拒否
+- 初期ブロック占有中は拒否
+- `progress` が `0.0..1.0` 外なら拒否
+- 存在しない block ID は拒否
+- 無効な速度（`speed <= 0`）は拒否
+
+---
+
+## Repository ルール
+
+- Repository インターフェースは Domain 層に置く
+- Repository は次をしてはならない:
+  - 業務 ID 生成
+  - 業務ルール適用
+  - 暗黙の Domain 状態変更
+- `Get / Create / Save` の意味を守る
+
+---
+
+## テスト方針（Milestone 1 コンテキスト）
+
+テストは仕様です。実装と常に一致させること。
+
+Simulation Core で最低限固定すべきカテゴリ:
+
+- 決定論（`A`）
+- 駅境界モデル（`B`）
+- Tick の基本遷移と overflow（`C`）
+- 占有不変条件（`D`）
+- 終端挙動（`E`）
+- 列車追加バリデーション（`F`）
+- Tick 入力バリデーション（`G`）
+- DTO 安定性（境界情報・順序安定）
+
+Milestone 1 は、これらが CI で安定して通るまで完了扱いにしない。
+
+---
+
+## マイルストーン戦略
+
+### Milestone 1: Simulation Core 安定化
+
+- `SimulationState` 挙動を固定
+- `Tick` を全面的にテスト / 修正
+- 終端仕様を一本化
+- 占有不変条件テストを強化
+- 明示的な駅境界 Domain API を追加
+
+### Milestone 2: Departure Permission
+
+- 駅単位の許可状態を追加
+- 許可なしは境界で停止
+- 許可 ON で次 `Tick` 進行
+- `POST /api/v1/simulation/permission` を追加
+
+### Milestone 3: 複数列車対応
+
+- 列車追加 API
+- 占有衝突テスト
+- ブロック競合処理
+
+### Milestone 4: HTTP 安定化
+
+- エラー分類（`400/404/409/500`）
+- DTO 安定化
+- ドキュメント整合修正
+
+### Milestone 5: リアルタイム共有（任意）
+
+- WebSocket 統合
+- 状態ブロードキャスト
+- サーバ主導の自動 Tick
+
+---
+
+## ドキュメント運用
+
+- コード / テスト / ドキュメントを常に同期する
+- 挙動変更時は同一 PR で文書更新する
+- 未実装のマイルストーンは TODO として明示する（実装済み扱いしない）
+- 一時ファイルや誤生成物を残さない（例: `*.go.<random suffix>`）
+
+---
+
+## AI エージェント指針
+
+- 巧妙さより明確さを優先する
+- 具体的必要性なしに抽象化を増やさない
+- コア Domain 概念の再構成前に確認する
+- 正しさ > 性能 > 便宜の順で判断する
+- 迷ったら、やることを増やさない
+
+---
+
+## 最後に
+
+このコードベースは「理解しやすさ」を第一に、「拡張性」を第二に置きます。
+モデルを理解しにくくする変更は、原則として誤りです。
